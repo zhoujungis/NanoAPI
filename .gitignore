@@ -1,0 +1,23 @@
+# 构建产物
+build/bin/
+build/windows/ridata/
+
+# Wails 自动生成的绑定与运行时（每次构建都会重新生成）
+frontend/wailsjs/
+
+# 前端依赖（本项目不使用 npm，保留以防将来引入）
+node_modules/
+frontend/dist/node_modules/
+
+# 本地数据
+data/
+*.log
+
+# 工具配置：权限白名单是机器相关的，不入库
+.commandcode/settings.json
+
+# 编辑器
+.idea/
+.vscode/
+*.swp
+.DS_Store

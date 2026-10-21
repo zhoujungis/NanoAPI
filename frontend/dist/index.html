@@ -1,0 +1,122 @@
+<!DOCTYPE html>
+<html lang="zh-CN" data-theme="dark">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>NanoAPI</title>
+    <link rel="stylesheet" href="css/app.css" />
+  </head>
+  <body>
+    <div id="app">
+      <header class="topbar">
+        <div class="brand"><span class="dot"></span>NanoAPI</div>
+        <div class="topbar-mid">
+          <label class="field-inline">
+            <span>环境</span>
+            <select id="env-select" class="select" style="width: 170px"></select>
+          </label>
+          <span id="env-hint" class="hint"></span>
+        </div>
+        <div class="topbar-actions">
+          <button id="btn-new-request" class="btn btn-sm">＋ 新建请求</button>
+          <button id="btn-settings" class="btn btn-sm">设置</button>
+        </div>
+      </header>
+
+      <div class="app-body">
+        <aside class="sidebar">
+          <div class="sidebar-tabs">
+            <button class="side-tab active" data-panel="collections">集合</button>
+            <button class="side-tab" data-panel="envs">环境</button>
+            <button class="side-tab" data-panel="history">历史</button>
+          </div>
+
+          <div class="sidebar-panel active" id="panel-collections">
+            <div class="side-toolbar">
+              <input id="collection-search" class="input search" placeholder="搜索集合" />
+              <button id="btn-new-collection" class="btn btn-sm" title="新建集合">＋</button>
+            </div>
+            <div id="collection-tree" class="tree"></div>
+          </div>
+
+          <div class="sidebar-panel" id="panel-envs">
+            <div class="side-toolbar">
+              <button id="btn-new-env" class="btn btn-sm">＋ 新建环境</button>
+              <button id="btn-new-global-env" class="btn btn-sm" title="全局变量对所有环境生效">＋ 全局变量</button>
+            </div>
+            <div id="env-list"></div>
+          </div>
+
+          <div class="sidebar-panel" id="panel-history">
+            <div class="side-toolbar">
+              <input id="history-search" class="input search" placeholder="搜索历史" />
+              <button id="btn-clear-history" class="btn btn-sm">清空</button>
+            </div>
+            <div id="history-list"></div>
+          </div>
+        </aside>
+
+        <main class="main">
+          <section class="request-pane panel-scroll">
+            <div class="req-titlebar">
+              <input id="req-name" class="input req-name" placeholder="请求名称" />
+              <span id="req-path" class="req-path">未保存</span>
+            </div>
+
+            <div class="url-bar">
+              <select id="method-select" class="select method-select"></select>
+              <input
+                id="url-input"
+                class="input url-input"
+                placeholder="https://api.example.com/users   或   {{baseUrl}}/users"
+                spellcheck="false"
+                autocomplete="off"
+              />
+              <button id="btn-send" class="btn btn-primary">发送</button>
+              <button id="btn-save" class="btn">保存</button>
+              <button id="btn-save-as" class="btn" title="另存为">另存为</button>
+            </div>
+
+            <div class="req-tabs">
+              <button class="req-tab active" data-tab="params">参数</button>
+              <button class="req-tab" data-tab="headers">请求头</button>
+              <button class="req-tab" data-tab="body">Body</button>
+              <button class="req-tab" data-tab="auth">认证</button>
+              <span id="req-tab-count" class="tab-count"></span>
+            </div>
+
+            <div class="req-tab-body active" id="tab-params"></div>
+            <div class="req-tab-body" id="tab-headers"></div>
+            <div class="req-tab-body" id="tab-body"></div>
+            <div class="req-tab-body" id="tab-auth"></div>
+          </section>
+
+          <div class="splitter" id="splitter"></div>
+
+          <section class="response-pane">
+            <div class="resp-head">
+              <div class="resp-tabs">
+                <button class="resp-tab active" data-tab="body">响应体</button>
+                <button class="resp-tab" data-tab="headers">响应头</button>
+              </div>
+              <div class="resp-meta" id="resp-meta"></div>
+              <div class="resp-actions">
+                <button id="btn-view-toggle" class="btn btn-sm">原始</button>
+                <button id="btn-copy-resp" class="btn btn-sm">复制</button>
+              </div>
+            </div>
+            <div class="resp-content active" id="resp-body-pane">
+              <div id="resp-body-container"></div>
+            </div>
+            <div class="resp-content" id="resp-headers-pane">
+              <div class="resp-headers" id="resp-headers"></div>
+            </div>
+          </section>
+        </main>
+      </div>
+    </div>
+
+    <div id="toast-host"></div>
+    <script type="module" src="js/app.js"></script>
+  </body>
+</html>
