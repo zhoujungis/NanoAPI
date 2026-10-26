@@ -192,9 +192,23 @@ workflow：`.github/workflows/release.yml`。
 
 | 事件 | 行为 |
 | --- | --- |
-| push 任意分支 / pull request | 只运行完整测试（Go、前端） |
+| push 默认分支（当前为 `master`） | 测试 → 构建 exe/NSIS/MSI → 按 `wails.json` 的 `info.productVersion` 自动创建/更新 Release 和 tag |
+| push 非默认分支 / pull request | 只运行完整测试（Go、前端） |
 | push tag `v*` | 测试 → 构建 exe/NSIS/MSI → 创建或更新对应 Release |
 | Actions → Run workflow，填写版本号 | 测试 → 构建 → **创建 tag 和 Release** |
+
+默认分支自动发布的版本来源是 `wails.json`：
+
+```json
+"info": {
+  "productVersion": "0.1.0"
+}
+```
+
+- 第一次推送默认分支会创建 `v0.1.0` tag 和 Release；
+- 版本号不变时再次推送会更新同一个 Release 的 exe/安装包（不改 tag 指向）；
+- 需要新版本时，把 `info.productVersion` 改成 `0.1.1`（并保持 `appVersion` 默认值同步更新，虽然 CI 会通过 `-ldflags` 覆盖运行版本），提交并推送默认分支；
+- 也可以手动推 tag 或使用 Run workflow 指定版本。
 
 手动发布：
 
@@ -211,6 +225,8 @@ git push origin v0.2.0
 
 这种情况下 tag 已存在，workflow 会为该 tag 创建 Release；重复运行会更新已有 Release 的产物（`--clobber`）。
 
+默认分支 push 的发布逻辑在 `release` job 中：`github.ref_name == github.event.repository.default_branch`。版本从 `wails.json` 读取，tag 为 `v<版本>`；`gh release create --target <提交>` 会在 tag 不存在时自动创建 tag。
+
 ### workflow 做了什么
 
 - `test` job（windows-latest）：
@@ -218,7 +234,8 @@ git push origin v0.2.0
   - `go vet ./...`、`go test ./...`；
   - 所有前端 JS `node --check`；
   - 4 组 Node 纯逻辑测试。
-- `release` job（需要 test 成功）：
+- `release` job（默认分支 push / tag / 手动触发，且需要 test 成功）：
+  - 默认分支 push 时从 `wails.json` 读取版本；tag 时使用 tag；手动触发时使用输入版本；
   - 按 `go.mod` 安装对应版本的 Wails CLI；
   - 安装 NSIS 与 WiX Toolset v3；
   - 调 `scripts/build-windows.ps1` 生成便携 exe、NSIS 安装包和 MSI；

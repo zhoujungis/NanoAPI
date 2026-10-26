@@ -44,13 +44,6 @@
         <Directory Id="INSTALLFOLDER" Name="NanoAPI">
           <Component Id="MainExecutable" Guid="*" Win64="yes">
             <File Id="NanoAPIExe" Source="$(var.SourceDir)\NanoAPI.exe" KeyPath="yes" />
-            <Shortcut
-              Id="StartMenuShortcut"
-              Directory="ApplicationProgramsFolder"
-              Name="NanoAPI"
-              Description="Lightweight API testing tool"
-              Target="[INSTALLFOLDER]NanoAPI.exe"
-              WorkingDirectory="INSTALLFOLDER" />
           </Component>
         </Directory>
       </Directory>
@@ -58,6 +51,13 @@
       <Directory Id="ProgramMenuFolder">
         <Directory Id="ApplicationProgramsFolder" Name="NanoAPI">
           <Component Id="ApplicationShortcut" Guid="*">
+            <Shortcut
+              Id="StartMenuShortcut"
+              Directory="ApplicationProgramsFolder"
+              Name="NanoAPI"
+              Description="Lightweight API testing tool"
+              Target="[INSTALLFOLDER]NanoAPI.exe"
+              WorkingDirectory="INSTALLFOLDER" />
             <RemoveFolder Id="RemoveApplicationProgramsFolder" On="uninstall" />
             <RegistryValue
               Root="HKCU"
