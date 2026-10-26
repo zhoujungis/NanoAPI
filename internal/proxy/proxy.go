@@ -15,10 +15,12 @@ import (
 	"io"
 	"net"
 	"net/http"
+	"net/http/cookiejar"
 	"net/http/httptrace"
 	"net/url"
 	"strconv"
 	"strings"
+	"sync"
 	"syscall"
 	"time"
 	"unicode/utf8"
@@ -39,15 +41,15 @@ const (
 
 // 错误分类，前端据此展示不同的提示。
 const (
-	ErrNone           = ""
-	ErrTimeout        = "timeout"
-	ErrDNS            = "dns"
-	ErrRefused        = "refused"
-	ErrTLS            = "tls"
-	ErrReset          = "reset"
-	ErrBadURL         = "badurl"
-	ErrNetwork        = "network"
-	ErrTooManyRedirec = "redirects"
+	ErrNone             = ""
+	ErrTimeout          = "timeout"
+	ErrDNS              = "dns"
+	ErrRefused          = "refused"
+	ErrTLS              = "tls"
+	ErrReset            = "reset"
+	ErrBadURL           = "badurl"
+	ErrNetwork          = "network"
+	ErrTooManyRedirects = "redirects"
 )
 
 // Options 描述一次待发送的请求。字段内容已完成插值，可直接发出。
@@ -76,30 +78,92 @@ type Hop struct {
 // 网络层错误不会以 Go error 返回，而是填入 Error 与 ErrorKind，
 // 以便前端把「请求失败」和「程序缺陷」区分开。
 type Result struct {
-	Status         int                `json:"status"`
-	StatusText     string             `json:"statusText"`
-	Proto          string             `json:"proto"`
+	Status         int                 `json:"status"`
+	StatusText     string              `json:"statusText"`
+	Proto          string              `json:"proto"`
+	URL            string              `json:"url,omitempty"`
 	Headers        map[string][]string `json:"headers"`
-	Body           string             `json:"body"`
-	BodyBase64     bool               `json:"bodyBase64"`
-	IsBinary       bool               `json:"isBinary"`
-	ContentType    string             `json:"contentType"`
-	DurationMS     int64              `json:"durationMs"`
-	DNSMS          int64              `json:"dnsMs"`
-	ConnectMS      int64              `json:"connectMs"`
-	TLSMS          int64              `json:"tlsMs"`
-	TTFBMS         int64              `json:"ttfbMs"`
-	Size           int64              `json:"size"`
-	Redirects      []Hop              `json:"redirects,omitempty"`
-	RemoteAddr     string             `json:"remoteAddr,omitempty"`
-	Truncated      bool               `json:"truncated"`
-	Error          string             `json:"error,omitempty"`
-	ErrorKind      string             `json:"errorKind,omitempty"`
-	UnresolvedVars []string           `json:"unresolvedVars,omitempty"`
+	Body           string              `json:"body"`
+	BodyBase64     bool                `json:"bodyBase64"`
+	IsBinary       bool                `json:"isBinary"`
+	ContentType    string              `json:"contentType"`
+	DurationMS     int64               `json:"durationMs"`
+	DNSMS          int64               `json:"dnsMs"`
+	ConnectMS      int64               `json:"connectMs"`
+	TLSMS          int64               `json:"tlsMs"`
+	TTFBMS         int64               `json:"ttfbMs"`
+	Size           int64               `json:"size"`
+	Redirects      []Hop               `json:"redirects,omitempty"`
+	RemoteAddr     string              `json:"remoteAddr,omitempty"`
+	Truncated      bool                `json:"truncated"`
+	Error          string              `json:"error,omitempty"`
+	ErrorKind      string              `json:"errorKind,omitempty"`
+	UnresolvedVars []string            `json:"unresolvedVars,omitempty"`
 }
 
-// Send 发送请求并返回结果。
+// Client 在多次请求之间保留 Cookie，模拟浏览器的会话行为。
+// 零值不保留 Cookie，需要会话时请使用 NewClient 创建。
+type Client struct {
+	mu  sync.Mutex
+	jar http.CookieJar
+}
+
+// NewClient 创建一个带独立 Cookie 存储的客户端。
+func NewClient() *Client {
+	jar, _ := cookiejar.New(nil)
+	return &Client{jar: jar}
+}
+
+// Send 发送请求，并自动读写当前会话的 Cookie。
+func (c *Client) Send(ctx context.Context, opt Options) *Result {
+	c.mu.Lock()
+	jar := c.jar
+	c.mu.Unlock()
+	return send(ctx, opt, jar)
+}
+
+// ClearCookies 清空当前会话的全部 Cookie。
+func (c *Client) ClearCookies() {
+	jar, _ := cookiejar.New(nil)
+	c.mu.Lock()
+	c.jar = jar
+	c.mu.Unlock()
+}
+
+// Send 发送一次不保留 Cookie 的独立请求，主要用于测试与一次性调用。
 func Send(ctx context.Context, opt Options) *Result {
+	return send(ctx, opt, nil)
+}
+
+// BuildURL 合并 URL 原有查询串、参数表与 Query 形式的 API Key，
+// 返回实际要请求的完整地址。发送与 cURL 导出共用这套规则。
+func BuildURL(rawURL string, params []model.KV, auth model.Auth) (string, error) {
+	rawURL = strings.TrimSpace(rawURL)
+	if rawURL == "" {
+		return "", errors.New("请填写请求地址")
+	}
+	if !strings.Contains(rawURL, "://") {
+		rawURL = "http://" + rawURL
+	}
+	u, err := url.Parse(rawURL)
+	if err != nil {
+		return "", fmt.Errorf("请求地址无法解析: %w", err)
+	}
+	if u.Host == "" {
+		return "", errors.New("请求地址缺少主机名")
+	}
+
+	query := mergeQuery(u.RawQuery, params)
+	if auth.Type == model.AuthAPIKey && auth.APIKey.AddTo == model.AddToQuery {
+		if k := strings.TrimSpace(auth.APIKey.Key); k != "" {
+			query = appendPair(query, k, auth.APIKey.Value)
+		}
+	}
+	u.RawQuery = query
+	return u.String(), nil
+}
+
+func send(ctx context.Context, opt Options, jar http.CookieJar) *Result {
 	res := &Result{Headers: map[string][]string{}}
 
 	method := strings.ToUpper(strings.TrimSpace(opt.Method))
@@ -107,37 +171,13 @@ func Send(ctx context.Context, opt Options) *Result {
 		method = http.MethodGet
 	}
 
-	rawURL := strings.TrimSpace(opt.URL)
-	if rawURL == "" {
-		res.Error = "请填写请求地址"
-		res.ErrorKind = ErrBadURL
-		return res
-	}
-	if !strings.Contains(rawURL, "://") {
-		rawURL = "http://" + rawURL
-	}
-	u, err := url.Parse(rawURL)
+	finalURL, err := BuildURL(opt.URL, opt.Params, opt.Auth)
 	if err != nil {
-		res.Error = "请求地址无法解析: " + err.Error()
+		res.Error = err.Error()
 		res.ErrorKind = ErrBadURL
 		return res
 	}
-	if u.Host == "" {
-		res.Error = "请求地址缺少主机名"
-		res.ErrorKind = ErrBadURL
-		return res
-	}
-
-	// 查询参数：URL 上原有的参数保留，参数表里的同名项覆盖之。
-	query := mergeQuery(u.RawQuery, opt.Params)
-
-	// API Key 认证若配置为注入 query，则并入查询串。
-	if opt.Auth.Type == model.AuthAPIKey && opt.Auth.APIKey.AddTo == model.AddToQuery {
-		if k := strings.TrimSpace(opt.Auth.APIKey.Key); k != "" {
-			query = appendPair(query, k, opt.Auth.APIKey.Value)
-		}
-	}
-	u.RawQuery = query
+	res.URL = finalURL
 
 	var bodyReader io.Reader
 	if len(opt.Body) > 0 {
@@ -156,17 +196,45 @@ func Send(ctx context.Context, opt Options) *Result {
 	var dnsStart, dnsDone, connectStart, connectDone, tlsStart, tlsDone, firstByte time.Time
 	var remoteAddr string
 	ctx = httptrace.WithClientTrace(ctx, &httptrace.ClientTrace{
-		DNSStart:             func(httptrace.DNSStartInfo) { if dnsStart.IsZero() { dnsStart = time.Now() } },
-		DNSDone:             func(httptrace.DNSDoneInfo) { if dnsDone.IsZero() { dnsDone = time.Now() } },
-		ConnectStart:        func(string, string) { if connectStart.IsZero() { connectStart = time.Now() } },
-		ConnectDone:         func(string, string, error) { if connectDone.IsZero() { connectDone = time.Now() } },
-		TLSHandshakeStart:   func() { if tlsStart.IsZero() { tlsStart = time.Now() } },
-		TLSHandshakeDone:    func(tls.ConnectionState, error) { if tlsDone.IsZero() { tlsDone = time.Now() } },
-		GotConn:             func(info httptrace.GotConnInfo) { if info.Conn != nil { remoteAddr = info.Conn.RemoteAddr().String() } },
+		DNSStart: func(httptrace.DNSStartInfo) {
+			if dnsStart.IsZero() {
+				dnsStart = time.Now()
+			}
+		},
+		DNSDone: func(httptrace.DNSDoneInfo) {
+			if dnsDone.IsZero() {
+				dnsDone = time.Now()
+			}
+		},
+		ConnectStart: func(string, string) {
+			if connectStart.IsZero() {
+				connectStart = time.Now()
+			}
+		},
+		ConnectDone: func(string, string, error) {
+			if connectDone.IsZero() {
+				connectDone = time.Now()
+			}
+		},
+		TLSHandshakeStart: func() {
+			if tlsStart.IsZero() {
+				tlsStart = time.Now()
+			}
+		},
+		TLSHandshakeDone: func(tls.ConnectionState, error) {
+			if tlsDone.IsZero() {
+				tlsDone = time.Now()
+			}
+		},
+		GotConn: func(info httptrace.GotConnInfo) {
+			if info.Conn != nil {
+				remoteAddr = info.Conn.RemoteAddr().String()
+			}
+		},
 		GotFirstResponseByte: func() { firstByte = time.Now() },
 	})
 
-	req, err := http.NewRequestWithContext(ctx, method, u.String(), bodyReader)
+	req, err := http.NewRequestWithContext(ctx, method, finalURL, bodyReader)
 	if err != nil {
 		res.Error = "构造请求失败: " + err.Error()
 		res.ErrorKind = ErrBadURL
@@ -190,6 +258,9 @@ func Send(ctx context.Context, opt Options) *Result {
 	applyAuth(req, opt.Auth)
 
 	transport := http.DefaultTransport.(*http.Transport).Clone()
+	// 每个请求都使用独立的 Transport，读完响应后主动关闭空闲连接，
+	// 否则频繁调试时已建立的连接会一直悬挂到超时。
+	defer transport.CloseIdleConnections()
 	if opt.InsecureTLS {
 		if transport.TLSClientConfig == nil {
 			transport.TLSClientConfig = &tls.Config{}
@@ -200,21 +271,18 @@ func Send(ctx context.Context, opt Options) *Result {
 	var hops []Hop
 	client := &http.Client{
 		Transport: transport,
+		Jar:       jar,
 		CheckRedirect: func(r *http.Request, via []*http.Request) error {
 			if !opt.FollowRedirects {
 				return http.ErrUseLastResponse
 			}
 			if len(via) >= maxRedirects {
 				res.Error = fmt.Sprintf("重定向超过 %d 次，已中止", maxRedirects)
-				res.ErrorKind = ErrTooManyRedirec
+				res.ErrorKind = ErrTooManyRedirects
 				return errors.New("stopped after too many redirects")
 			}
 			if r.Response != nil {
-				hop := Hop{Status: r.Response.StatusCode}
-				if r.Response.Request != nil {
-					hop.URL = r.Response.Request.URL.String()
-				}
-				hops = append(hops, hop)
+				hops = append(hops, Hop{Status: r.Response.StatusCode, URL: r.URL.String()})
 			}
 			return nil
 		},
@@ -224,8 +292,12 @@ func Send(ctx context.Context, opt Options) *Result {
 	resp, err := client.Do(req)
 	if err != nil {
 		res.DurationMS = time.Since(start).Milliseconds()
-		res.Error = translateError(err)
-		res.ErrorKind = classify(err)
+		// CheckRedirect 已经写入了更准确的「重定向次数过多」提示，
+		// 不能被底层 url.Error 覆盖成通用网络错误。
+		if res.ErrorKind != ErrTooManyRedirects {
+			res.Error = translateError(err)
+			res.ErrorKind = classify(err)
+		}
 		return res
 	}
 	defer resp.Body.Close()
@@ -263,6 +335,7 @@ func Send(ctx context.Context, opt Options) *Result {
 	res.Status = resp.StatusCode
 	res.StatusText = statusText(resp)
 	res.Proto = resp.Proto
+	res.URL = resp.Request.URL.String()
 	res.Headers = map[string][]string(resp.Header)
 	res.ContentType = resp.Header.Get("Content-Type")
 	res.Size = int64(len(data))
@@ -310,12 +383,13 @@ func mergeQuery(existing string, params []model.KV) string {
 		for i := range pairs {
 			if pairs[i].k == p.Key {
 				pairs[i].v = p.Value
+				pairs[i].hasValue = true
 				replaced = true
 				break
 			}
 		}
 		if !replaced {
-			pairs = append(pairs, kvPair{k: p.Key, v: p.Value})
+			pairs = append(pairs, kvPair{k: p.Key, v: p.Value, hasValue: true})
 		}
 	}
 	return encodePairs(pairs)
@@ -324,11 +398,15 @@ func mergeQuery(existing string, params []model.KV) string {
 // appendPair 往查询串末尾追加一个键值对。
 func appendPair(query, key, value string) string {
 	pairs := parseQueryPairs(query)
-	pairs = append(pairs, kvPair{k: key, v: value})
+	pairs = append(pairs, kvPair{k: key, v: value, hasValue: true})
 	return encodePairs(pairs)
 }
 
-type kvPair struct{ k, v string }
+// kvPair 保留「是否有等号」的信息，避免把 ?debug 改写成 ?debug=。
+type kvPair struct {
+	k, v     string
+	hasValue bool
+}
 
 func parseQueryPairs(raw string) []kvPair {
 	if raw == "" {
@@ -339,7 +417,7 @@ func parseQueryPairs(raw string) []kvPair {
 		if seg == "" {
 			continue
 		}
-		k, v, _ := strings.Cut(seg, "=")
+		k, v, hasValue := strings.Cut(seg, "=")
 		dk, err := url.QueryUnescape(k)
 		if err != nil {
 			dk = k
@@ -348,7 +426,7 @@ func parseQueryPairs(raw string) []kvPair {
 		if err != nil {
 			dv = v
 		}
-		out = append(out, kvPair{k: dk, v: dv})
+		out = append(out, kvPair{k: dk, v: dv, hasValue: hasValue})
 	}
 	return out
 }
@@ -363,8 +441,10 @@ func encodePairs(pairs []kvPair) string {
 			b.WriteByte('&')
 		}
 		b.WriteString(url.QueryEscape(p.k))
-		b.WriteByte('=')
-		b.WriteString(url.QueryEscape(p.v))
+		if p.hasValue {
+			b.WriteByte('=')
+			b.WriteString(url.QueryEscape(p.v))
+		}
 	}
 	return b.String()
 }
@@ -496,7 +576,7 @@ func translateError(err error) string {
 		return "TLS 证书校验失败，可到设置中关闭证书校验后重试"
 	case ErrReset:
 		return "连接被重置，目标服务主动中断了连接"
-	case ErrTooManyRedirec:
+	case ErrTooManyRedirects:
 		return "重定向次数过多，已中止"
 	}
 	return err.Error()

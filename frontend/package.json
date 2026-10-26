@@ -1,0 +1,8 @@
+{
+  "name": "nanoapi-frontend",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test": "node --test tests/store.test.mjs tests/envbulk.test.mjs tests/download.test.mjs tests/headers.test.mjs"
+  }
+}

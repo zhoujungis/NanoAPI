@@ -1,6 +1,9 @@
 # 构建产物
 build/bin/
 build/windows/ridata/
+build/windows/installer/
+*.wixobj
+*.wixpdb
 
 # Wails 自动生成的绑定与运行时（每次构建都会重新生成）
 frontend/wailsjs/
@@ -13,8 +16,8 @@ frontend/dist/node_modules/
 data/
 *.log
 
-# 工具配置：权限白名单是机器相关的，不入库
-.commandcode/settings.json
+# 本地 agent 配置/学习数据，不入库
+.commandcode/
 
 # 编辑器
 .idea/

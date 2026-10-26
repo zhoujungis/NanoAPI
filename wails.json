@@ -9,5 +9,11 @@
   "author": {
     "name": "NanoAPI",
     "email": ""
+  },
+  "info": {
+    "companyName": "NanoAPI",
+    "productName": "NanoAPI",
+    "productVersion": "0.1.0",
+    "comments": "Lightweight API testing tool"
   }
 }

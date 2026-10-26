@@ -27,7 +27,7 @@ func TestOpenCreatesDefaultData(t *testing.T) {
 	if d.Settings.TimeoutMS != model.DefaultSettings().TimeoutMS {
 		t.Fatalf("timeout = %d, want default", d.Settings.TimeoutMS)
 	}
-	if d.Collections == nil || d.Environments == nil || d.History == nil {
+	if d.Collections == nil || d.Environments == nil || d.History == nil || d.Tabs == nil {
 		t.Fatal("expected non-nil slices")
 	}
 	if _, err := os.Stat(path); !os.IsNotExist(err) {
@@ -49,7 +49,19 @@ func TestRoundTrip(t *testing.T) {
 	s.SetEnvironments([]*model.Environment{
 		{ID: "e1", Name: "开发", Values: []model.KV{{Key: "baseUrl", Value: "https://dev.example.com", Enabled: true}}},
 	})
-	s.SetSettings(model.Settings{TimeoutMS: 12345, FollowRedirects: false, InsecureTLS: true, Theme: "light"})
+	s.SetSettings(model.Settings{
+		TimeoutMS: 12345, FollowRedirects: false, InsecureTLS: true,
+		Theme: "light", ActiveEnvID: "e1",
+	})
+	s.SetTabs([]*model.OpenTab{
+		{
+			Key: "tab-1",
+			Request: model.Request{
+				ID: "r1", Name: "列表", Method: "GET", URL: "https://api.example.com/users",
+			},
+			Dirty: true,
+		},
+	}, "tab-1")
 
 	if err := s.Flush(); err != nil {
 		t.Fatalf("Flush: %v", err)
@@ -79,6 +91,39 @@ func TestRoundTrip(t *testing.T) {
 	}
 	if d.Settings.TimeoutMS != 12345 || d.Settings.Theme != "light" || d.Settings.InsecureTLS != true {
 		t.Fatalf("settings = %+v", d.Settings)
+	}
+	if d.Settings.ActiveEnvID != "e1" {
+		t.Fatalf("activeEnvId = %q, want e1", d.Settings.ActiveEnvID)
+	}
+	if len(d.Tabs) != 1 || d.Tabs[0].Key != "tab-1" || !d.Tabs[0].Dirty {
+		t.Fatalf("tabs = %+v", d.Tabs)
+	}
+	if d.Tabs[0].Request.URL != "https://api.example.com/users" {
+		t.Fatalf("tab request = %+v", d.Tabs[0].Request)
+	}
+	if d.ActiveTabKey != "tab-1" {
+		t.Fatalf("activeTabKey = %q, want tab-1", d.ActiveTabKey)
+	}
+}
+
+func TestLoadKeepsThemeWhenTimeoutIsInvalid(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "nanoapi.json")
+	raw := `{"settings":{"timeoutMs":0,"theme":"light"}}`
+	if err := os.WriteFile(path, []byte(raw), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	s, err := Open(path)
+	if err != nil {
+		t.Fatalf("Open: %v", err)
+	}
+	d := s.Snapshot()
+	if d.Settings.TimeoutMS != model.DefaultSettings().TimeoutMS {
+		t.Fatalf("timeout = %d, want default", d.Settings.TimeoutMS)
+	}
+	if d.Settings.Theme != "light" {
+		t.Fatalf("theme = %q, want light", d.Settings.Theme)
 	}
 }
 

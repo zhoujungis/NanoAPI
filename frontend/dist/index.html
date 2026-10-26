@@ -13,11 +13,12 @@
         <div class="topbar-mid">
           <label class="field-inline">
             <span>环境</span>
-            <select id="env-select" class="select" style="width: 170px"></select>
+            <select id="env-select" class="select env-select"></select>
           </label>
           <span id="env-hint" class="hint"></span>
         </div>
         <div class="topbar-actions">
+          <button id="btn-import-curl" class="btn btn-sm">导入 cURL</button>
           <button id="btn-new-request" class="btn btn-sm">＋ 新建请求</button>
           <button id="btn-settings" class="btn btn-sm">设置</button>
         </div>
@@ -58,6 +59,7 @@
 
         <main class="main">
           <section class="request-pane panel-scroll">
+            <div id="request-tabs" class="request-tabs"></div>
             <div class="req-titlebar">
               <input id="req-name" class="input req-name" placeholder="请求名称" />
               <span id="req-path" class="req-path">未保存</span>
@@ -75,6 +77,7 @@
               <button id="btn-send" class="btn btn-primary">发送</button>
               <button id="btn-save" class="btn">保存</button>
               <button id="btn-save-as" class="btn" title="另存为">另存为</button>
+              <button id="btn-copy-curl" class="btn" title="使用当前环境解析变量后复制为 Bash 风格 cURL">复制 cURL</button>
             </div>
 
             <div class="req-tabs">
@@ -98,10 +101,12 @@
               <div class="resp-tabs">
                 <button class="resp-tab active" data-tab="body">响应体</button>
                 <button class="resp-tab" data-tab="headers">响应头</button>
+                <button class="resp-tab" data-tab="timing">耗时</button>
               </div>
               <div class="resp-meta" id="resp-meta"></div>
               <div class="resp-actions">
                 <button id="btn-view-toggle" class="btn btn-sm">原始</button>
+                <button id="btn-save-resp" class="btn btn-sm" title="保存响应体到文件" disabled>保存</button>
                 <button id="btn-copy-resp" class="btn btn-sm">复制</button>
               </div>
             </div>
@@ -109,7 +114,22 @@
               <div id="resp-body-container"></div>
             </div>
             <div class="resp-content" id="resp-headers-pane">
+              <div class="headers-toolbar">
+                <input
+                  id="headers-filter"
+                  class="input headers-filter"
+                  type="text"
+                  placeholder="筛选响应头"
+                  autocomplete="off"
+                  spellcheck="false"
+                  disabled
+                />
+                <span id="headers-count" class="headers-count"></span>
+              </div>
               <div class="resp-headers" id="resp-headers"></div>
+            </div>
+            <div class="resp-content" id="resp-timing-pane">
+              <div id="resp-timing"></div>
             </div>
           </section>
         </main>

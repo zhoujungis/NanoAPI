@@ -26,6 +26,8 @@ func main() {
 	mux.HandleFunc("/status/", handleStatus)
 	mux.HandleFunc("/redirect", handleRedirect)
 	mux.HandleFunc("/binary", handleBinary)
+	mux.HandleFunc("/cookie/set", handleCookieSet)
+	mux.HandleFunc("/cookie/check", handleCookieCheck)
 	mux.HandleFunc("/slow", handleSlow)
 	mux.HandleFunc("/", handleIndex)
 
@@ -56,7 +58,7 @@ func handleIndex(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{
-		"code": 0,
+		"code":    0,
 		"message": "NanoAPI mock 服务",
 		"endpoints": []string{
 			"GET  /users",
@@ -65,6 +67,8 @@ func handleIndex(w http.ResponseWriter, r *http.Request) {
 			"GET  /status/{code}",
 			"GET  /redirect",
 			"GET  /binary",
+			"GET  /cookie/set",
+			"GET  /cookie/check",
 			"GET  /slow?ms=2000",
 		},
 	})
@@ -100,15 +104,45 @@ func handleUser(w http.ResponseWriter, r *http.Request) {
 }
 
 func handleEcho(w http.ResponseWriter, r *http.Request) {
-	body, _ := io.ReadAll(r.Body)
-	writeJSON(w, http.StatusOK, map[string]any{
+	result := map[string]any{
 		"code":    0,
 		"method":  r.Method,
 		"path":    r.URL.Path,
 		"query":   r.URL.Query(),
 		"headers": r.Header,
-		"body":    string(body),
-	})
+	}
+
+	contentType := strings.ToLower(r.Header.Get("Content-Type"))
+	if strings.HasPrefix(contentType, "multipart/form-data") {
+		if err := r.ParseMultipartForm(32 << 20); err != nil {
+			writeJSON(w, http.StatusBadRequest, map[string]any{
+				"code": 400, "message": "multipart 解析失败", "error": err.Error(),
+			})
+			return
+		}
+		defer r.MultipartForm.RemoveAll()
+
+		files := []map[string]any{}
+		for field, headers := range r.MultipartForm.File {
+			for _, h := range headers {
+				files = append(files, map[string]any{
+					"field":       field,
+					"filename":    h.Filename,
+					"size":        h.Size,
+					"contentType": h.Header.Get("Content-Type"),
+				})
+			}
+		}
+		result["contentType"] = r.Header.Get("Content-Type")
+		result["fields"] = r.MultipartForm.Value
+		result["files"] = files
+		writeJSON(w, http.StatusOK, result)
+		return
+	}
+
+	body, _ := io.ReadAll(r.Body)
+	result["body"] = string(body)
+	writeJSON(w, http.StatusOK, result)
 }
 
 func handleStatus(w http.ResponseWriter, r *http.Request) {
@@ -141,6 +175,25 @@ func handleBinary(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "image/png")
 	w.Header().Set("Content-Length", strconv.Itoa(len(png)))
 	_, _ = w.Write(png)
+}
+
+func handleCookieSet(w http.ResponseWriter, r *http.Request) {
+	http.SetCookie(w, &http.Cookie{
+		Name:     "sid",
+		Value:    "mock-session",
+		Path:     "/",
+		HttpOnly: true,
+	})
+	writeJSON(w, http.StatusOK, map[string]any{"code": 0, "message": "已写入 Cookie"})
+}
+
+func handleCookieCheck(w http.ResponseWriter, r *http.Request) {
+	c, err := r.Cookie("sid")
+	if err != nil {
+		writeJSON(w, http.StatusOK, map[string]any{"code": 0, "hasCookie": false})
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"code": 0, "hasCookie": true, "sid": c.Value})
 }
 
 func handleSlow(w http.ResponseWriter, r *http.Request) {

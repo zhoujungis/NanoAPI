@@ -51,6 +51,37 @@ func TestJSONRoundTrip(t *testing.T) {
 	}
 }
 
+func TestMultipartBodyJSONRoundTrip(t *testing.T) {
+	req := NewRequest()
+	req.Body = Body{
+		Type:  BodyMultipart,
+		Form:  []KV{{Key: "name", Value: "张三", Enabled: true}},
+		Files: []FileField{{Key: "file", Path: `C:\tmp\a.txt`, Enabled: true}},
+	}
+
+	b, err := json.Marshal(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var back Request
+	if err := json.Unmarshal(b, &back); err != nil {
+		t.Fatal(err)
+	}
+	if back.Body.Type != BodyMultipart {
+		t.Fatalf("body type = %q, want %q", back.Body.Type, BodyMultipart)
+	}
+	if len(back.Body.Files) != 1 {
+		t.Fatalf("files = %+v", back.Body.Files)
+	}
+	got := back.Body.Files[0]
+	if got.Key != "file" || got.Path != `C:\tmp\a.txt` || !got.Enabled {
+		t.Fatalf("file field = %+v", got)
+	}
+	if len(back.Body.Form) != 1 || back.Body.Form[0].Value != "张三" {
+		t.Fatalf("form = %+v", back.Body.Form)
+	}
+}
+
 func TestFindItem(t *testing.T) {
 	tree := sampleTree()
 	parent, found := FindItem(tree, "r1")

@@ -47,6 +47,7 @@ func newData() *model.AppData {
 		Environments: []*model.Environment{},
 		History:      []*model.HistoryEntry{},
 		Settings:     model.DefaultSettings(),
+		Tabs:         []*model.OpenTab{},
 	}
 }
 
@@ -66,8 +67,13 @@ func (s *Store) load() error {
 		s.data = newData()
 		return nil
 	}
+	// 只补齐缺失或非法的字段，不要整体重置，
+	// 否则超时字段异常会连带丢掉用户已经选好的主题。
 	if d.Settings.TimeoutMS <= 0 {
-		d.Settings = model.DefaultSettings()
+		d.Settings.TimeoutMS = model.DefaultSettings().TimeoutMS
+	}
+	if d.Settings.Theme == "" {
+		d.Settings.Theme = model.DefaultSettings().Theme
 	}
 	if d.Collections == nil {
 		d.Collections = []*model.CollectionItem{}
@@ -77,6 +83,9 @@ func (s *Store) load() error {
 	}
 	if d.History == nil {
 		d.History = []*model.HistoryEntry{}
+	}
+	if d.Tabs == nil {
+		d.Tabs = []*model.OpenTab{}
 	}
 	s.data = &d
 	return nil
@@ -98,6 +107,7 @@ func (s *Store) Snapshot() model.AppData {
 	d.Collections = append([]*model.CollectionItem{}, s.data.Collections...)
 	d.Environments = append([]*model.Environment{}, s.data.Environments...)
 	d.History = append([]*model.HistoryEntry{}, s.data.History...)
+	d.Tabs = append([]*model.OpenTab{}, s.data.Tabs...)
 	return d
 }
 
@@ -121,6 +131,15 @@ func (s *Store) SetEnvironments(envs []*model.Environment) {
 func (s *Store) SetSettings(set model.Settings) {
 	s.mu.Lock()
 	s.data.Settings = set
+	s.mu.Unlock()
+	s.schedule()
+}
+
+// SetTabs 保存当前打开的标签页与活动标签。
+func (s *Store) SetTabs(tabs []*model.OpenTab, activeKey string) {
+	s.mu.Lock()
+	s.data.Tabs = tabs
+	s.data.ActiveTabKey = activeKey
 	s.mu.Unlock()
 	s.schedule()
 }

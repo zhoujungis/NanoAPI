@@ -1,36 +1,49 @@
 // store.js —— 应用状态、订阅机制与集合树辅助函数。
 
-/** 创建一个空白请求。 */
-export function emptyRequest() {
-  return {
-    id: '',
-    name: '新建请求',
-    method: 'GET',
-    url: '',
-    params: [],
-    headers: [],
-    body: { type: 'none', raw: '', form: [] },
-    auth: {
-      type: 'none',
-      basic: { username: '', password: '' },
-      bearer: '',
-      apiKey: { key: '', value: '', addTo: 'header' },
-    },
-  };
-}
-
 export const state = {
   collections: [],
   environments: [],
   history: [],
   settings: { timeoutMs: 30000, followRedirects: true, insecureTls: false, theme: 'dark' },
   activeEnvId: '',
-  request: emptyRequest(),
-  result: null,
+  tabs: [],
+  activeTabKey: '',
   sending: false,
   panel: 'collections',
   responseView: 'pretty',
   appInfo: {},
+
+  get activeTab() {
+    return this.tabs.find((tab) => tab.key === this.activeTabKey) || null;
+  },
+  get request() {
+    return this.activeTab ? this.activeTab.request : null;
+  },
+  set request(req) {
+    const tab = this.activeTab;
+    if (tab) tab.request = req;
+  },
+  get dirty() {
+    return this.activeTab ? Boolean(this.activeTab.dirty) : false;
+  },
+  set dirty(value) {
+    const tab = this.activeTab;
+    if (tab) tab.dirty = Boolean(value);
+  },
+  get result() {
+    return this.activeTab ? this.activeTab.result : null;
+  },
+  set result(value) {
+    const tab = this.activeTab;
+    if (tab) tab.result = value ?? null;
+  },
+  get resultRequestId() {
+    return this.activeTab ? this.activeTab.resultRequestId || '' : '';
+  },
+  set resultRequestId(value) {
+    const tab = this.activeTab;
+    if (tab) tab.resultRequestId = value || '';
+  },
 };
 
 const listeners = new Map();
@@ -76,6 +89,76 @@ export function removeItem(items, id) {
     if (removeItem(list[i].items, id)) return true;
   }
   return false;
+}
+
+/**
+ * 在集合树中移动节点。
+ * @param {Array} items 根节点数组（通常传 state.collections）
+ * @param {string} draggedId 被拖动节点 ID
+ * @param {string} targetId 目标节点 ID；position 为 root 时忽略
+ * @param {'inside'|'before'|'after'|'root'} position 落点位置
+ * @returns {boolean} 是否发生了移动
+ */
+export function moveItem(items, draggedId, targetId, position) {
+  if (!Array.isArray(items) || !draggedId) return false;
+  if (position !== 'root' && !targetId) return false;
+
+  const dragged = locateItem(items, draggedId);
+  if (!dragged) return false;
+
+  if (position === 'root') {
+    dragged.list.splice(dragged.index, 1);
+    items.push(dragged.node);
+    return true;
+  }
+
+  if (position !== 'inside' && position !== 'before' && position !== 'after') {
+    return false;
+  }
+
+  const target = locateItem(items, targetId);
+  if (!target || target.node === dragged.node) return false;
+  if (nodeContains(dragged.node, targetId)) return false;
+  if (position === 'inside' && target.node.type === 'request') return false;
+
+  dragged.list.splice(dragged.index, 1);
+
+  if (position === 'inside') {
+    target.node.items = target.node.items || [];
+    target.node.items.push(dragged.node);
+    return true;
+  }
+
+  // 同层移动时，移除被拖动节点后目标索引会变化，重新定位一次。
+  const current = locateItem(items, targetId);
+  if (!current) {
+    dragged.list.splice(Math.min(dragged.index, dragged.list.length), 0, dragged.node);
+    return false;
+  }
+  const index = position === 'before' ? current.index : current.index + 1;
+  current.list.splice(index, 0, dragged.node);
+  return true;
+}
+
+function locateItem(items, id, parent = null) {
+  for (let i = 0; i < (items || []).length; i += 1) {
+    const item = items[i];
+    if (!item) continue;
+    if (item.id === id) {
+      return { node: item, parent, list: items, index: i };
+    }
+    if (item.items?.length) {
+      const found = locateItem(item.items, id, item);
+      if (found) return found;
+    }
+  }
+  return null;
+}
+
+function nodeContains(node, id) {
+  if (!node) return false;
+  if (node.id === id) return true;
+  return (node.items || []).some((child) => nodeContains(child, id));
 }
 
 /** 把集合树中的集合与文件夹拍平成可用于下拉框的列表。 */

@@ -226,6 +226,101 @@ func TestRedirectFollowedWhenEnabled(t *testing.T) {
 	if len(res.Redirects) != 1 || res.Redirects[0].Status != 302 {
 		t.Fatalf("redirects = %+v", res.Redirects)
 	}
+	if res.Redirects[0].URL != srv.URL+"/new" {
+		t.Fatalf("redirect target = %q, want %q", res.Redirects[0].URL, srv.URL+"/new")
+	}
+	if res.URL != srv.URL+"/new" {
+		t.Fatalf("final url = %q, want %q", res.URL, srv.URL+"/new")
+	}
+}
+
+func TestTooManyRedirectsKeepsSpecificError(t *testing.T) {
+	srv := newServer(t, func(w http.ResponseWriter, r *http.Request) {
+		http.Redirect(w, r, "/next", http.StatusFound)
+	})
+
+	res := Send(context.Background(), Options{
+		Method: "GET", URL: srv.URL, FollowRedirects: true,
+	})
+	if res.ErrorKind != ErrTooManyRedirects {
+		t.Fatalf("errorKind = %q, want %q (error: %s)", res.ErrorKind, ErrTooManyRedirects, res.Error)
+	}
+	if !strings.Contains(res.Error, "重定向超过") {
+		t.Fatalf("error message = %q, want a redirect hint", res.Error)
+	}
+}
+
+func TestClientKeepsCookiesAcrossRequests(t *testing.T) {
+	var got string
+	srv := newServer(t, func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/set":
+			http.SetCookie(w, &http.Cookie{Name: "sid", Value: "abc123", Path: "/"})
+			fmt.Fprint(w, "set")
+		case "/check":
+			if c, err := r.Cookie("sid"); err == nil {
+				got = c.Value
+			}
+			fmt.Fprint(w, "check")
+		default:
+			http.NotFound(w, r)
+		}
+	})
+
+	client := NewClient()
+	if res := client.Send(context.Background(), Options{Method: "GET", URL: srv.URL + "/set"}); res.Error != "" {
+		t.Fatalf("set cookie: %s", res.Error)
+	}
+	if res := client.Send(context.Background(), Options{Method: "GET", URL: srv.URL + "/check"}); res.Error != "" {
+		t.Fatalf("check cookie: %s", res.Error)
+	}
+	if got != "abc123" {
+		t.Fatalf("cookie = %q, want abc123", got)
+	}
+}
+
+func TestClientClearCookies(t *testing.T) {
+	var got string
+	srv := newServer(t, func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/set" {
+			http.SetCookie(w, &http.Cookie{Name: "sid", Value: "abc123", Path: "/"})
+			fmt.Fprint(w, "set")
+			return
+		}
+		if c, err := r.Cookie("sid"); err == nil {
+			got = c.Value
+		}
+		fmt.Fprint(w, "check")
+	})
+
+	client := NewClient()
+	client.Send(context.Background(), Options{Method: "GET", URL: srv.URL + "/set"})
+	client.ClearCookies()
+	client.Send(context.Background(), Options{Method: "GET", URL: srv.URL + "/check"})
+	if got != "" {
+		t.Fatalf("cookie survived ClearCookies: %q", got)
+	}
+}
+
+func TestQueryFlagWithoutValueIsPreserved(t *testing.T) {
+	var rawQuery string
+	srv := newServer(t, func(w http.ResponseWriter, r *http.Request) {
+		rawQuery = r.URL.RawQuery
+		fmt.Fprint(w, "ok")
+	})
+
+	Send(context.Background(), Options{
+		Method: "GET",
+		URL:    srv.URL + "/users?debug&page=1",
+		Params: []model.KV{{Key: "size", Value: "20", Enabled: true}},
+	})
+
+	if !strings.Contains(rawQuery, "debug") || strings.Contains(rawQuery, "debug=") {
+		t.Fatalf("value-less query flag was rewritten: %q", rawQuery)
+	}
+	if !strings.Contains(rawQuery, "size=20") {
+		t.Fatalf("param missing: %q", rawQuery)
+	}
 }
 
 func TestRedirectNotFollowedWhenDisabled(t *testing.T) {
@@ -346,6 +441,36 @@ func TestMissingSchemeGetsHTTPDefault(t *testing.T) {
 	res := Send(context.Background(), Options{Method: "GET", URL: strings.TrimPrefix(srv.URL, "http://")})
 	if res.Error != "" {
 		t.Fatalf("unexpected error: %s", res.Error)
+	}
+}
+
+func TestBuildURLMergesParamsAndAPIKey(t *testing.T) {
+	got, err := BuildURL(
+		"example.com/users?page=1&flag",
+		[]model.KV{
+			{Key: "page", Value: "2", Enabled: true},
+			{Key: "tag", Value: "a b", Enabled: true},
+		},
+		model.Auth{
+			Type:   model.AuthAPIKey,
+			APIKey: model.APIKeyAuth{Key: "api_key", Value: "k", AddTo: model.AddToQuery},
+		},
+	)
+	if err != nil {
+		t.Fatalf("BuildURL: %v", err)
+	}
+	want := "http://example.com/users?page=2&flag&tag=a+b&api_key=k"
+	if got != want {
+		t.Fatalf("BuildURL = %q, want %q", got, want)
+	}
+}
+
+func TestBuildURLRejectsBadInput(t *testing.T) {
+	if _, err := BuildURL("  ", nil, model.Auth{}); err == nil {
+		t.Fatal("expected an error for an empty URL")
+	}
+	if _, err := BuildURL("http:///path", nil, model.Auth{}); err == nil {
+		t.Fatal("expected an error for a URL without a host")
 	}
 }
 

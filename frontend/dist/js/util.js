@@ -10,16 +10,35 @@ export function escapeHtml(s) {
 
 /** 转义为可安全放入 HTML 属性值的内容。 */
 export function escapeAttr(s) {
-  return escapeHtml(s).replace(/"/g, '&quot;');
+  return escapeHtml(s).replace(/"/g, '&quot;').replace(/'/g, '&#39;');
 }
 
-/** 延迟执行，等待期间再次调用会重新计时。 */
-export function debounce(fn, wait = 200) {
-  let timer = null;
-  return (...args) => {
-    if (timer) clearTimeout(timer);
-    timer = setTimeout(() => fn(...args), wait);
-  };
+/**
+ * 复制文本到剪贴板。
+ * WebView 中 Clipboard API 可能不可用，此时退回 execCommand。
+ */
+export async function copyText(text) {
+  try {
+    await navigator.clipboard.writeText(text);
+    return true;
+  } catch {
+    /* 继续尝试兼容方案 */
+  }
+  let area = null;
+  try {
+    area = document.createElement('textarea');
+    area.value = text;
+    area.setAttribute('readonly', '');
+    area.style.position = 'fixed';
+    area.style.opacity = '0';
+    document.body.appendChild(area);
+    area.select();
+    return document.execCommand('copy');
+  } catch {
+    return false;
+  } finally {
+    area?.remove();
+  }
 }
 
 /** 生成短随机标识。 */
@@ -123,49 +142,7 @@ export function confirmDialog(message, title = '请确认') {
       else if (act === 'cancel' || e.target === backdrop) done(false);
     });
     document.body.appendChild(backdrop);
-    backdrop.querySelector('[data-act="ok"]').focus();
-  });
-}
-
-/** 读取 base64 字符串并解码为 UTF-8 文本。 */
-export function decodeBase64(b64) {
-  const bin = atob(b64);
-  const bytes = Uint8Array.from(bin, (c) => c.charCodeAt(0));
-  return new TextDecoder('utf-8').decode(bytes);
-}
-
-/** 弹出输入框，返回 Promise<string|null>。 */
-export function promptDialog(title, value = '', placeholder = '') {
-  return new Promise((resolve) => {
-    const backdrop = document.createElement('div');
-    backdrop.className = 'modal-backdrop';
-    backdrop.innerHTML = `
-      <div class="modal modal-sm">
-        <div class="modal-title">${escapeHtml(title)}</div>
-        <div class="modal-body">
-          <input class="input" id="prompt-input" value="${escapeAttr(value)}" placeholder="${escapeAttr(placeholder)}" />
-        </div>
-        <div class="modal-actions">
-          <button class="btn" data-act="cancel">取消</button>
-          <button class="btn btn-primary" data-act="ok">确定</button>
-        </div>
-      </div>`;
-    const input = backdrop.querySelector('#prompt-input');
-    const done = (v) => {
-      backdrop.remove();
-      resolve(v);
-    };
-    backdrop.addEventListener('click', (e) => {
-      const act = e.target.closest('[data-act]')?.dataset.act;
-      if (act === 'ok') done(input.value.trim());
-      else if (act === 'cancel' || e.target === backdrop) done(null);
-    });
-    backdrop.addEventListener('keydown', (e) => {
-      if (e.key === 'Enter') done(input.value.trim());
-      if (e.key === 'Escape') done(null);
-    });
-    document.body.appendChild(backdrop);
-    input.focus();
-    input.select();
+    // 危险操作默认聚焦「取消」，避免误按回车。
+    backdrop.querySelector('[data-act="cancel"]').focus();
   });
 }

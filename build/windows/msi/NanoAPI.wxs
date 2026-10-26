@@ -1,0 +1,79 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<Wix xmlns="http://schemas.microsoft.com/wix/2006/wi">
+  <Product
+    Id="*"
+    Name="NanoAPI"
+    Language="1033"
+    Version="$(var.Version)"
+    Manufacturer="NanoAPI"
+    UpgradeCode="6F1D3B5A-2C4E-4A8B-9F1D-7E2C3B4A5D6E">
+
+    <Package
+      InstallerVersion="500"
+      Compressed="yes"
+      InstallScope="perMachine"
+      Platform="x64"
+      Description="NanoAPI - lightweight API testing tool"
+      Comments="NanoAPI" />
+
+    <MajorUpgrade DowngradeErrorMessage="A newer version of NanoAPI is already installed." />
+    <MediaTemplate EmbedCab="yes" />
+
+    <Property Id="WEBVIEW2_PV">
+      <RegistrySearch
+        Id="WebView2Pv"
+        Root="HKLM"
+        Key="SOFTWARE\WOW6432Node\Microsoft\EdgeUpdate\Clients\{F3017226-FE2A-4295-8BDF-00C3A9A7E4C5}"
+        Name="pv"
+        Type="raw" />
+    </Property>
+    <Property Id="WEBVIEW2_PV_HKCU">
+      <RegistrySearch
+        Id="WebView2PvHKCU"
+        Root="HKCU"
+        Key="SOFTWARE\Microsoft\EdgeUpdate\Clients\{F3017226-FE2A-4295-8BDF-00C3A9A7E4C5}"
+        Name="pv"
+        Type="raw" />
+    </Property>
+    <Condition Message="NanoAPI requires the Microsoft Edge WebView2 Runtime. Install it from https://go.microsoft.com/fwlink/p/?LinkId=2124703 and run this installer again.">
+      <![CDATA[WEBVIEW2_PV OR WEBVIEW2_PV_HKCU]]>
+    </Condition>
+
+    <Directory Id="TARGETDIR" Name="SourceDir">
+      <Directory Id="ProgramFiles64Folder">
+        <Directory Id="INSTALLFOLDER" Name="NanoAPI">
+          <Component Id="MainExecutable" Guid="*" Win64="yes">
+            <File Id="NanoAPIExe" Source="$(var.SourceDir)\NanoAPI.exe" KeyPath="yes" />
+            <Shortcut
+              Id="StartMenuShortcut"
+              Directory="ApplicationProgramsFolder"
+              Name="NanoAPI"
+              Description="Lightweight API testing tool"
+              Target="[INSTALLFOLDER]NanoAPI.exe"
+              WorkingDirectory="INSTALLFOLDER" />
+          </Component>
+        </Directory>
+      </Directory>
+
+      <Directory Id="ProgramMenuFolder">
+        <Directory Id="ApplicationProgramsFolder" Name="NanoAPI">
+          <Component Id="ApplicationShortcut" Guid="*">
+            <RemoveFolder Id="RemoveApplicationProgramsFolder" On="uninstall" />
+            <RegistryValue
+              Root="HKCU"
+              Key="Software\NanoAPI"
+              Name="installed"
+              Type="integer"
+              Value="1"
+              KeyPath="yes" />
+          </Component>
+        </Directory>
+      </Directory>
+    </Directory>
+
+    <Feature Id="MainFeature" Title="NanoAPI" Level="1">
+      <ComponentRef Id="MainExecutable" />
+      <ComponentRef Id="ApplicationShortcut" />
+    </Feature>
+  </Product>
+</Wix>

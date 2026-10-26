@@ -31,8 +31,16 @@ export const bridge = {
   saveCollections: (collections) => call('SaveCollections', collections),
   saveEnvironments: (environments) => call('SaveEnvironments', environments),
   saveSettings: (settings) => call('SaveSettings', settings),
+  saveTabs: (tabs, activeTabKey) => call('SaveTabs', tabs, activeTabKey),
   clearHistory: () => call('ClearHistory'),
+  clearCookies: () => call('ClearCookies'),
+  exportBundle: () => call('ExportBundle'),
+  importBundle: () => call('ImportBundle'),
+  parseCurl: (command) => call('ParseCurl', command),
+  buildCurl: (request, envId) => call('BuildCurl', request, envId),
   sendRequest: (request, envId, options) => call('SendRequest', request, envId, options),
   pickFile: () => call('PickFile'),
+  saveResponseBody: (defaultName, body, base64Encoded) =>
+    call('SaveResponseBody', defaultName, body, base64Encoded),
   appInfo: () => call('AppInfo'),
 };

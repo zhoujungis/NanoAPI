@@ -21,17 +21,26 @@ func (k KV) IsBlank() bool { return k.Key == "" && k.Value == "" }
 
 // Body 类型常量。
 const (
-	BodyNone = "none"
-	BodyJSON = "json"
-	BodyText = "text"
-	BodyForm = "form"
+	BodyNone      = "none"
+	BodyJSON      = "json"
+	BodyText      = "text"
+	BodyForm      = "form"
+	BodyMultipart = "multipart"
 )
+
+// FileField 是 multipart 请求中的一个本地文件字段。
+type FileField struct {
+	Key     string `json:"key"`
+	Path    string `json:"path"`
+	Enabled bool   `json:"enabled"`
+}
 
 // Body 表示请求体。不同类型下只有对应字段有意义。
 type Body struct {
-	Type string `json:"type"`
-	Raw  string `json:"raw,omitempty"`
-	Form []KV   `json:"form,omitempty"`
+	Type  string      `json:"type"`
+	Raw   string      `json:"raw,omitempty"`
+	Form  []KV        `json:"form,omitempty"`
+	Files []FileField `json:"files,omitempty"`
 }
 
 // 认证类型常量。
@@ -89,10 +98,10 @@ const (
 
 // CollectionItem 是集合树的节点，可以是文件夹（持有子节点）也可以是请求。
 type CollectionItem struct {
-	ID      string           `json:"id"`
-	Type    string           `json:"type"`
-	Name    string           `json:"name"`
-	Request *Request         `json:"request,omitempty"`
+	ID      string            `json:"id"`
+	Type    string            `json:"type"`
+	Name    string            `json:"name"`
+	Request *Request          `json:"request,omitempty"`
 	Items   []*CollectionItem `json:"items,omitempty"`
 }
 
@@ -122,6 +131,16 @@ type Settings struct {
 	FollowRedirects bool   `json:"followRedirects"`
 	InsecureTLS     bool   `json:"insecureTls"`
 	Theme           string `json:"theme"`
+	// ActiveEnvID 记住上次选中的环境，重启后继续使用。
+	ActiveEnvID string `json:"activeEnvId,omitempty"`
+}
+
+// OpenTab 是一个请求标签页的持久化状态。
+// 响应不落盘，避免数据文件随响应体膨胀。
+type OpenTab struct {
+	Key     string  `json:"key"`
+	Request Request `json:"request"`
+	Dirty   bool    `json:"dirty"`
 }
 
 // AppData 是持久化到磁盘的完整应用状态。
@@ -130,6 +149,8 @@ type AppData struct {
 	Environments []*Environment    `json:"environments"`
 	History      []*HistoryEntry   `json:"history"`
 	Settings     Settings          `json:"settings"`
+	Tabs         []*OpenTab        `json:"tabs,omitempty"`
+	ActiveTabKey string            `json:"activeTabKey,omitempty"`
 }
 
 // DefaultSettings 返回首次启动时使用的默认设置。
